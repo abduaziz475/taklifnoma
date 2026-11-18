@@ -42,6 +42,15 @@ db.exec(`
     is_admin INTEGER NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sender TEXT NOT NULL CHECK(sender IN ('user','admin')),
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    read_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS messages_user_created ON messages(user_id, created_at);
 `);
 
 function setting(key, fallback) {
@@ -54,13 +63,24 @@ function setSetting(key, value) {
 }
 
 for (const [key, value] of Object.entries({
-  site_name: "Mehr",
-  welcome_title: "Sizni maxsus uchrashuvga taklif qilamiz",
+  site_name: "ELITE MEETING",
+  welcome_title: "Har bir uchrashuv yangi bir hikoyaning boshlanishi.",
   proposal_title: "Sizga bir taklifim bor...",
   accent_color: "#c89c72",
   meeting_types: JSON.stringify(["Kafe", "Restoran", "Sayr", "Park", "Kino", "Boshqa"]),
 })) {
   if (!db.prepare("SELECT key FROM settings WHERE key = ?").get(key)) setSetting(key, value);
+}
+if (setting("site_name", "") === "Mehr") setSetting("site_name", "ELITE MEETING");
+if (setting("welcome_title", "") === "Sizni maxsus uchrashuvga taklif qilamiz") {
+  setSetting("welcome_title", "Har bir uchrashuv yangi bir hikoyaning boshlanishi.");
+}
+if (setting("proposal_title", "") === "Sizga bir taklifim bor...") {
+  setSetting("proposal_title", "Sizga maxsus taklifim bor...");
+}
+if (setting("accent_color", "") === "#c89c72") setSetting("accent_color", "#c66b87");
+if (setting("meeting_types", "") === '["Kafe","Restoran","Sayr","Park","Kino","Boshqa"]') {
+  setSetting("meeting_types", JSON.stringify(["Restoran", "Kafe", "Sayr", "Park", "Kino", "Sayohat", "Maxsus tadbir", "Boshqa"]));
 }
 
 const adminLogin = process.env.ADMIN_LOGIN || "admin";
@@ -168,7 +188,7 @@ async function sendSms(phone, code) {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER) {
     throw new Error("Haqiqiy SMS yuborish uchun Twilio sozlamalari kiritilmagan.");
   }
-  const body = new URLSearchParams({ To: phone, From: TWILIO_FROM_NUMBER, Body: `Mehr tasdiqlash kodi: ${code}` });
+  const body = new URLSearchParams({ To: phone, From: TWILIO_FROM_NUMBER, Body: `ELITE MEETING tasdiqlash kodi: ${code}` });
   const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
     method: "POST",
@@ -317,7 +337,7 @@ app.post("/api/appointments", requireUser, (req, res) => {
     return res.status(400).json({ error: "Sana, boshlanish vaqti, joy va manzilni to‘liq kiriting." });
   }
   if (req.currentUser.consent !== "yes") return res.status(403).json({ error: "Uchrashuvni rejalashdan oldin taklifga rozilik bering." });
-  const ticketCode = `MH-${new Date().getFullYear()}-${randomBytes(3).toString("hex").toUpperCase()}`;
+  const ticketCode = `EM-${new Date().getFullYear()}-${randomBytes(3).toString("hex").toUpperCase()}`;
   const result = db.prepare(`INSERT INTO appointments
     (user_id,date,start_time,end_time,type,venue,address,duration,note,wish,ticket_code,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
@@ -325,6 +345,23 @@ app.post("/api/appointments", requireUser, (req, res) => {
     clean(input.duration, 40), clean(input.note, 500), clean(input.wish, 500), ticketCode, nowIso(),
   );
   res.status(201).json({ appointment: publicAppointment(db.prepare("SELECT * FROM appointments WHERE id = ?").get(result.lastInsertRowid)) });
+});
+
+app.get("/api/messages", requireUser, (req, res) => {
+  const messages = db.prepare("SELECT id, sender, body, created_at createdAt, read_at readAt FROM messages WHERE user_id = ? ORDER BY created_at, id")
+    .all(req.currentUser.id);
+  db.prepare("UPDATE messages SET read_at = ? WHERE user_id = ? AND sender = 'admin' AND read_at IS NULL")
+    .run(nowIso(), req.currentUser.id);
+  res.json({ messages });
+});
+
+app.post("/api/messages", requireUser, (req, res) => {
+  const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+  if (!body || body.length > 2000) return res.status(400).json({ error: "Xabar 1 dan 2000 belgigacha bo‘lishi kerak." });
+  const createdAt = nowIso();
+  const result = db.prepare("INSERT INTO messages (user_id, sender, body, created_at) VALUES (?, 'user', ?, ?)")
+    .run(req.currentUser.id, body, createdAt);
+  res.status(201).json({ message: { id: Number(result.lastInsertRowid), sender: "user", body, createdAt, readAt: null } });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -399,10 +436,33 @@ app.post("/api/admin/appointments", requireAdmin, (req, res) => {
   const venue = clean(req.body?.venue, 120);
   const address = clean(req.body?.address, 200);
   if (!user || !validDate(date) || !validTime(startTime) || !venue || !address) return res.status(400).json({ error: "Foydalanuvchi va uchrashuv ma’lumotlarini tekshiring." });
-  const code = `MH-${new Date().getFullYear()}-${randomBytes(3).toString("hex").toUpperCase()}`;
+  const code = `EM-${new Date().getFullYear()}-${randomBytes(3).toString("hex").toUpperCase()}`;
   const result = db.prepare(`INSERT INTO appointments (user_id,date,start_time,end_time,type,venue,address,status,ticket_code,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?)`).run(userId, date, startTime, clean(req.body?.endTime, 5), clean(req.body?.type, 50) || "Boshqa", venue, address, "confirmed", code, nowIso());
   res.status(201).json({ appointment: publicAppointment(db.prepare("SELECT * FROM appointments WHERE id=?").get(result.lastInsertRowid)) });
+});
+
+app.get("/api/admin/messages", requireAdmin, (req, res) => {
+  const query = `%${clean(req.query.q, 100)}%`;
+  const rows = db.prepare(`SELECT m.id, m.user_id userId, m.sender, m.body, m.created_at createdAt, m.read_at readAt,
+      u.first_name firstName, u.last_name lastName, u.phone
+    FROM messages m JOIN users u ON u.id = m.user_id
+    WHERE m.body LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR u.phone LIKE ?
+    ORDER BY m.created_at, m.id`).all(query, query, query, query);
+  db.prepare("UPDATE messages SET read_at = ? WHERE sender = 'user' AND read_at IS NULL").run(nowIso());
+  res.json({ messages: rows });
+});
+
+app.post("/api/admin/messages/:userId", requireAdmin, (req, res) => {
+  const userId = Number(req.params.userId);
+  const user = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+  const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+  if (!user) return res.status(404).json({ error: "Foydalanuvchi topilmadi." });
+  if (!body || body.length > 2000) return res.status(400).json({ error: "Xabar 1 dan 2000 belgigacha bo‘lishi kerak." });
+  const createdAt = nowIso();
+  const result = db.prepare("INSERT INTO messages (user_id, sender, body, created_at) VALUES (?, 'admin', ?, ?)")
+    .run(userId, body, createdAt);
+  res.status(201).json({ message: { id: Number(result.lastInsertRowid), userId, sender: "admin", body, createdAt, readAt: null } });
 });
 
 app.patch("/api/admin/users/:id", requireAdmin, (req, res) => {
@@ -423,7 +483,7 @@ app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
 
 app.get("/api/admin/settings", requireAdmin, (_req, res) => {
   res.json({
-    siteName: setting("site_name", "Mehr"), welcomeTitle: setting("welcome_title", "Sizni maxsus uchrashuvga taklif qilamiz"),
+    siteName: setting("site_name", "ELITE MEETING"), welcomeTitle: setting("welcome_title", "Har bir uchrashuv yangi bir hikoyaning boshlanishi."),
     proposalTitle: setting("proposal_title", "Sizga bir taklifim bor..."), accentColor: setting("accent_color", "#c89c72"),
     logoData: setting("logo_data", ""),
     meetingTypes: JSON.parse(setting("meeting_types", '["Kafe","Restoran","Sayr","Park","Kino","Boshqa"]')),
@@ -473,7 +533,7 @@ app.get("/api/admin/export.csv", requireAdmin, (_req, res) => {
     return `"${safeValue.replaceAll('"', '""')}"`;
   }).join(","))].join("\r\n");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", "attachment; filename=mehr-foydalanuvchilar.csv");
+  res.setHeader("Content-Disposition", "attachment; filename=elite-meeting-foydalanuvchilar.csv");
   res.send(`\uFEFF${csv}`);
 });
 
@@ -488,4 +548,4 @@ if (isProduction) {
   app.get("/{*path}", (req, res, next) => req.path.startsWith("/api/") ? next() : res.sendFile(resolve(clientDir, "index.html")));
 }
 
-app.listen(port, () => console.log(`Mehr API ${port}-portda ishga tushdi${demoEnabled ? " (demo rejim)" : ""}.`));
+app.listen(port, () => console.log(`ELITE MEETING API ${port}-portda ishga tushdi${demoEnabled ? " (demo rejim)" : ""}.`));

@@ -1,6 +1,6 @@
-# Mehr — premium uchrashuv taklifnomasi
+# ELITE MEETING — uchrashuvlar platformasi
 
-O‘zbek tilidagi to‘liq ishlaydigan uchrashuv platformasi: React/Vite mijoz interfeysi, Express API va SQLite ma’lumotlar bazasi. Ro‘yxat, rozilik, uchrashuvlar, admin sozlamalari va sessiyalar serverda saqlanadi.
+O‘zbek tilidagi uchrashuv taklifnomalari va boshqaruv platformasi: React/Vite mijoz interfeysi, Express API va SQLite ma’lumotlar bazasi. Ro‘yxat, rozilik, uchrashuvlar, foydalanuvchi-admin yozishmalari, admin sozlamalari va sessiyalar serverda saqlanadi.
 
 ## Ishga tushirish
 
@@ -26,9 +26,10 @@ Admin parolini paneldagi **Sozlamalar** bo‘limidan almashtiring. Birinchi mart
 - Telefon raqami bo‘yicha ro‘yxatdan o‘tish va OTP tasdiqlash; 5 daqiqalik kod va xato urinish cheklovi.
 - Rozilikni bildirish yoki rad etish; foydalanuvchining tanlovi saqlanadi va o‘zgarishi mumkin.
 - Sana, vaqt, joy va izohlar bilan uchrashuv rejalash, taklifnoma raqami, chop etish/PDF va Telegram orqali ulashish.
-- Foydalanuvchi kabineti, profil tahriri, uchrashuvlar tarixi va administrator izohlari.
+- Foydalanuvchi kabineti, profil tahriri, oy taqvimi, uchrashuvlar tarixi va admin bilan doimiy saqlanadigan xabarlar markazi.
 - Admin CRM: statistikalar, haftalik/oylik grafiklar, foydalanuvchilarni qidirish/filtrlash/saralash, tahrirlash/o‘chirish, CSV eksport, uchrashuvlarni boshqarish va sayt sozlamalari.
 - Admin autentifikatsiyasi serverda tekshiriladi; parol bcrypt bilan xeshlanadi, sessiya tokenining faqat xeshi bazada saqlanadi.
+- Interfeysda qorong‘i va yorug‘ rejimni almashtirish mumkin.
 
 ## Haqiqiy SMS
 
@@ -41,7 +42,11 @@ TWILIO_AUTH_TOKEN=...
 TWILIO_FROM_NUMBER=...
 ```
 
-Twilio sozlanmagan bo‘lsa, SMS rejimi aniq xatolik bilan to‘xtaydi. Maxfiy kalitlarni frontendga yoki repoga qo‘shmang. Uchrashuv bo‘yicha administrator izohlari foydalanuvchi kabinetida saqlanadi; tashqi xabarnoma provayderi sozlanmagan.
+Twilio sozlanmagan bo‘lsa, SMS rejimi aniq xatolik bilan to‘xtaydi. Maxfiy kalitlarni frontendga yoki repoga qo‘shmang. Tashqi push/e-mail xabarnomalari va xabar fayllarini biriktirish hozircha ulanmagan.
+
+## Ma’lumotlar ombori
+
+Hozirgi ishlaydigan demo SQLite’dan foydalanadi va ma’lumotlarni `data/mehr.sqlite` (yoki `DB_PATH`) faylida doimiy saqlaydi. Supabase loyihasi va kalitlari berilmagani sababli Supabase/PostgreSQL backend ulangan deb ko‘rsatilmaydi. Bir nechta server nusxasi, real SMS, tashqi bildirishnomalar, fayl biriktirish va administrator rollari/faoliyat auditi uchun alohida production ulanishi va migratsiya talab qilinadi.
 
 ## Production
 
