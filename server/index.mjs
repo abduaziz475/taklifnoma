@@ -51,6 +51,52 @@ db.exec(`
     read_at TEXT
   );
   CREATE INDEX IF NOT EXISTS messages_user_created ON messages(user_id, created_at);
+  CREATE TABLE IF NOT EXISTS consent_responses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    invitation_id INTEGER,
+    answer TEXT NOT NULL CHECK(answer IN ('yes','no','pending')),
+    response_date TEXT NOT NULL,
+    response_time TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS consent_responses_user ON consent_responses(user_id, created_at);
+  CREATE TABLE IF NOT EXISTS meeting_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    previous_date TEXT,
+    previous_start_time TEXT,
+    previous_end_time TEXT,
+    previous_status TEXT,
+    reason TEXT NOT NULL DEFAULT '',
+    changed_by TEXT NOT NULL DEFAULT 'system',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS meeting_history_meeting ON meeting_history(meeting_id, created_at);
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    admin_only INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'info',
+    read_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS notifications_recipient ON notifications(user_id, created_at);
+  CREATE INDEX IF NOT EXISTS appointments_conflict ON appointments(date, start_time, end_time, status);
+  CREATE TABLE IF NOT EXISTS activity_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT NOT NULL DEFAULT '',
+    details TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
 `);
 
 function setting(key, fallback) {
@@ -322,7 +368,12 @@ app.post("/api/consent", requireUser, (req, res) => {
   const consent = req.body?.consent;
   if (!["yes", "no", "pending"].includes(consent)) return res.status(400).json({ error: "Tanlov noto‘g‘ri." });
   db.prepare("UPDATE users SET consent = ? WHERE id = ?").run(consent, req.currentUser.id);
+  const now = nowIso();
+  db.prepare(`INSERT INTO consent_responses (user_id,answer,response_date,response_time,status,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?)`).run(req.currentUser.id, consent, now.slice(0,10), now.slice(11,19), "active", now, now);
   if (consent === "no") db.prepare("UPDATE appointments SET status='cancelled' WHERE user_id=? AND status='pending'").run(req.currentUser.id);
+  db.prepare("INSERT INTO notifications (admin_only,title,body,type,created_at) VALUES (1,?,?,?,?)")
+    .run("Yangi rozilik javobi", `${req.currentUser.first_name} ${req.currentUser.last_name}: ${consent}`, "consent", now);
   res.json({ consent });
 });
 
@@ -337,6 +388,9 @@ app.post("/api/appointments", requireUser, (req, res) => {
     return res.status(400).json({ error: "Sana, boshlanish vaqti, joy va manzilni to‘liq kiriting." });
   }
   if (req.currentUser.consent !== "yes") return res.status(403).json({ error: "Uchrashuvni rejalashdan oldin taklifga rozilik bering." });
+  const conflict = db.prepare(`SELECT id FROM appointments WHERE date=? AND status NOT IN ('cancelled','declined')
+    AND start_time < ? AND COALESCE(NULLIF(end_time,''),? ) > ? LIMIT 1`).get(date, clean(input.endTime,5) || "23:59", clean(input.endTime,5) || "23:59", startTime);
+  if (conflict) return res.status(409).json({ error: "Bu sana va vaqtda boshqa uchrashuv mavjud. Boshqa vaqt tanlang." });
   const ticketCode = `EM-${new Date().getFullYear()}-${randomBytes(3).toString("hex").toUpperCase()}`;
   const result = db.prepare(`INSERT INTO appointments
     (user_id,date,start_time,end_time,type,venue,address,duration,note,wish,ticket_code,created_at)
@@ -353,6 +407,24 @@ app.get("/api/messages", requireUser, (req, res) => {
   db.prepare("UPDATE messages SET read_at = ? WHERE user_id = ? AND sender = 'admin' AND read_at IS NULL")
     .run(nowIso(), req.currentUser.id);
   res.json({ messages });
+});
+
+app.get("/api/notifications", requireUser, (req, res) => {
+  const rows = db.prepare("SELECT * FROM notifications WHERE user_id=? OR user_id IS NULL ORDER BY created_at DESC LIMIT 100").all(req.currentUser.id);
+  res.json({ notifications: rows.map((row) => ({ id: row.id, title: row.title, body: row.body, type: row.type, readAt: row.read_at, createdAt: row.created_at })) });
+});
+
+app.post("/api/notifications/read", requireUser, (req, res) => {
+  db.prepare("UPDATE notifications SET read_at=? WHERE read_at IS NULL AND (user_id=? OR user_id IS NULL)").run(nowIso(), req.currentUser.id);
+  res.json({ ok: true });
+});
+
+app.get("/api/meeting-history/:id", requireUser, (req, res) => {
+  const meetingId = Number(req.params.id);
+  const owned = db.prepare("SELECT id FROM appointments WHERE id=? AND user_id=?").get(meetingId, req.currentUser.id);
+  if (!owned) return res.status(404).json({ error: "Uchrashuv topilmadi." });
+  const rows = db.prepare("SELECT * FROM meeting_history WHERE meeting_id=? ORDER BY created_at DESC").all(meetingId);
+  res.json({ history: rows });
 });
 
 app.post("/api/messages", requireUser, (req, res) => {
@@ -423,8 +495,16 @@ app.patch("/api/admin/appointments/:id", requireAdmin, (req, res) => {
   const date = clean(req.body?.date || current.date, 10);
   const startTime = clean(req.body?.startTime || current.start_time, 5);
   if (!validDate(date) || !validTime(startTime) || (req.body?.endTime && (!validTime(clean(req.body.endTime, 5)) || clean(req.body.endTime, 5) <= startTime))) return res.status(400).json({ error: "Sana yoki vaqt noto‘g‘ri." });
+  const previousStatus = current.status;
+  const nextStatus = status || previousStatus;
   db.prepare(`UPDATE appointments SET status=?,date=?,start_time=?,end_time=?,venue=?,address=?,admin_note=? WHERE id=?`)
-    .run(status || current.status, date, startTime, clean(req.body?.endTime ?? current.end_time, 5), clean(req.body?.venue ?? current.venue, 120), clean(req.body?.address ?? current.address, 200), clean(req.body?.adminNote ?? current.admin_note, 500), current.id);
+    .run(nextStatus, date, startTime, clean(req.body?.endTime ?? current.end_time, 5), clean(req.body?.venue ?? current.venue, 120), clean(req.body?.address ?? current.address, 200), clean(req.body?.adminNote ?? current.admin_note, 500), current.id);
+  if (date !== current.date || startTime !== current.start_time || clean(req.body?.endTime ?? current.end_time, 5) !== current.end_time || nextStatus !== previousStatus) {
+    db.prepare(`INSERT INTO meeting_history (meeting_id,user_id,previous_date,previous_start_time,previous_end_time,previous_status,reason,changed_by,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(current.id,current.user_id,current.date,current.start_time,current.end_time,previousStatus,clean(req.body?.reason,500),"admin",nowIso());
+  }
+  db.prepare("INSERT INTO notifications (user_id,title,body,type,created_at) VALUES (?,?,?,?,?)")
+    .run(current.user_id, "Uchrashuv yangilandi", `Uchrashuv holati: ${nextStatus}. Sana: ${date} ${startTime}.`, "meeting", nowIso());
   res.json({ appointment: publicAppointment(db.prepare("SELECT * FROM appointments WHERE id=?").get(current.id)) });
 });
 

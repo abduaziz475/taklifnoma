@@ -54,6 +54,9 @@ function App() {
   const [noCount, setNoCount] = useState(0);
   const [accountTab, setAccountTab] = useState("overview");
   const [theme, setTheme] = useState<"dark" | "light">(() => localStorage.getItem("elite-meeting-theme") === "light" ? "light" : "dark");
+  const [language, setLanguage] = useState<"UZ" | "RU" | "EN">(() => (localStorage.getItem("elite-meeting-language") as "UZ" | "RU" | "EN") || "UZ");
+  useEffect(() => { document.documentElement.lang = language.toLowerCase(); localStorage.setItem("elite-meeting-language", language); }, [language]);
+  const localizedWelcome = language === "RU" ? "Каждый момент заслуживает своей истории." : language === "EN" ? "Every moment deserves a story." : config.welcomeTitle;
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageDraft, setMessageDraft] = useState("");
   const [messageSearch, setMessageSearch] = useState("");
@@ -192,6 +195,7 @@ function App() {
         </button>
         <div className="topbar-right">
           <span className="secure-label"><Shield size={14} /> Maxfiy va xavfsiz</span>
+          <select className="language-select" aria-label="Til" value={language} onChange={(e) => setLanguage(e.target.value as "UZ" | "RU" | "EN")}><option>UZ</option><option>RU</option><option>EN</option></select>
           <button className="icon-btn theme-toggle" onClick={toggleTheme} aria-label={theme === "dark" ? "Yorug‘ rejimga o‘tish" : "Qorong‘i rejimga o‘tish"}>{theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}</button>
           {user && <button className="icon-btn profile-shortcut" onClick={() => setStage("account")} aria-label="Kabinet"><UserRound size={17} /></button>}
         </div>
@@ -202,7 +206,7 @@ function App() {
           <section className="welcome-layout fade-in">
             <div className="welcome-copy">
               <span className="eyebrow"><Sparkles size={14} /> HAR BIR UCHRASHUV — YANGI HIKOYA</span>
-              <h1>{config.welcomeTitle} <span className="heart-inline">♥</span></h1>
+              <h1>{localizedWelcome} <span className="heart-inline">♥</span></h1>
               <p className="lead">Maxsus uchrashuvga taklifni qabul qiling va o‘z vaqtingizni belgilang.</p>
               <div className="welcome-note"><HeartHandshake size={20} /><span>Samimiy lahzalar, nafis muhit va esda qolarli xotiralar.</span></div>
               <div className="trust-row"><span><Shield size={14} /> Ma’lumotlaringiz himoyalangan</span><i /><span>1 daqiqada ro‘yxatdan o‘ting</span></div>

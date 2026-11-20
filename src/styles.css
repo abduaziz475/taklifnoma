@@ -27,6 +27,7 @@ a { color: inherit; text-decoration: none; }
 .brand small, .admin-brand small { font: 500 8px "DM Sans", sans-serif; letter-spacing: 1.8px; color: #877b84; margin-top: 5px; }
 .brand-mark { width: 35px; height: 35px; display: grid; place-items: center; border: 1px solid rgba(211,167,128,.48); color: var(--accent-light); border-radius: 12px; background: linear-gradient(145deg, rgba(200,156,114,.2), rgba(160,79,103,.13)); box-shadow: inset 0 0 14px rgba(205,145,129,.08); }
 .topbar-right { display: flex; align-items: center; gap: 20px; }
+.language-select { height: 36px; border: 1px solid var(--line); background: #151116; color: #d8ccd4; border-radius: 9px; padding: 0 7px; font-size: 10px; cursor: pointer; }
 .secure-label { font-size: 11px; color: #a99ea6; display: flex; align-items: center; gap: 7px; }
 .secure-label svg { color: #9c8979; }
 .icon-btn { width: 36px; height: 36px; border: 1px solid var(--line); background: rgba(255,255,255,.025); border-radius: 10px; display: grid; place-items: center; color: #dbd1d6; cursor: pointer; }
