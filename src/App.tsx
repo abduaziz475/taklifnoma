@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import {
   ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, CalendarDays, Check, CheckCircle2,
   ChevronDown, ChevronRight, Clock3, Coffee, Download, Eye, EyeOff,
-  FileHeart, Heart, HeartHandshake, Inbox, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
+  FileHeart,   Heart, Inbox, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
   MoreHorizontal, PenLine, Phone, Plus, Search, Settings, Shield, Sparkles, Ticket,
   Sun, Moon, Trash2, UserRound, Users, X, type LucideIcon,
 } from "lucide-react";
@@ -29,7 +29,70 @@ const demoReasons = [
   "Bir piyola qahva uchun ham imkon bermaysizmi? ☕",
   "Mayli, qaroringizni hurmat qilaman ❤️",
 ];
+const staticDemo = window.location.hostname.endsWith("github.io") || window.location.hostname === "127.0.0.1";
+const demoStoreKey = "noir-demo-store";
+const readDemoStore = () => JSON.parse(localStorage.getItem(demoStoreKey) || "null") || { users: [] as User[], appointments: [] as Appointment[], messages: [] as Message[], sessionUserId: null as number | null, admin: false, challengePayload: null as ProfileForm | null, settings: {} as Record<string, unknown> };
+const writeDemoStore = (store: ReturnType<typeof readDemoStore>) => localStorage.setItem(demoStoreKey, JSON.stringify(store));
+
 const api = async <T,>(url: string, init?: RequestInit): Promise<T> => {
+  if (staticDemo) {
+    const method = init?.method || "GET";
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    const store = readDemoStore();
+    const current = store.users.find((item: User) => item.id === store.sessionUserId) || null;
+    const path = url.split("?")[0];
+
+    if (path === "/api/config") return { demoMode: true, siteName: "NOIR", welcomeTitle: "Har bir lahza oddiy emas.", proposalTitle: "Siz uchun alohida bir taklifim bor.", accentColor: "#c9ae83", meetingTypes: ["Fine Dining", "Kechki sayr", "Kofe uchrashuvi", "Kino kechasi", "Tabiatga sayohat", "Maxsus tadbir"] } as T;
+    if (path === "/api/auth/start") {
+      store.challengePayload = body as ProfileForm;
+      writeDemoStore(store);
+      return { challengeId: `demo-${Date.now()}`, demoCode: "246810", message: "Demo tasdiqlash kodi tayyor." } as T;
+    }
+    if (path === "/api/auth/resend") return { challengeId: `demo-${Date.now()}`, demoCode: "246810", message: "Demo kod qayta yaratildi." } as T;
+    if (path === "/api/auth/verify") {
+      if (body.code !== "246810") throw new Error("Tasdiqlash kodi noto‘g‘ri.");
+      const profileBody = store.challengePayload || (body as ProfileForm);
+      let user = current;
+      if (!user) {
+        user = { id: Date.now(), firstName: profileBody.firstName || "Madina", lastName: profileBody.lastName || "Karimova", phone: profileBody.phone || "+998 90 123 45 67", birthDate: profileBody.birthDate || "", city: profileBody.city || "Toshkent", telegram: profileBody.telegram || "", about: profileBody.about || "", consent: "pending", createdAt: new Date().toISOString() };
+        store.users.push(user);
+      }
+      store.sessionUserId = user.id;
+      writeDemoStore(store);
+      return { user } as T;
+    }
+    if (path === "/api/auth/logout") { store.sessionUserId = null; store.admin = false; writeDemoStore(store); return {} as T; }
+    if (path === "/api/me") {
+      if (!current) throw new Error("Avval tizimga kiring.");
+      if (method === "PATCH") { Object.assign(current, body); writeDemoStore(store); }
+      const appointments = store.appointments.filter((item: Appointment) => item.userId === current.id);
+      return (method === "PATCH" ? { user: current } : { user: current, appointments }) as T;
+    }
+    if (path === "/api/consent") { if (!current) throw new Error("Avval tizimga kiring."); current.consent = body.consent; writeDemoStore(store); return {} as T; }
+    if (path === "/api/appointments" && method === "POST") {
+      if (!current) throw new Error("Avval tizimga kiring.");
+      const appointment: Appointment = { id: Date.now(), userId: current.id, date: body.date, startTime: body.startTime, endTime: body.endTime || "", type: body.type, venue: body.venue, address: body.address, duration: body.duration || "2 soat", note: body.note || "", wish: body.wish || "", status: "pending", ticketCode: `NOIR-${String(Date.now()).slice(-6)}`, createdAt: new Date().toISOString(), firstName: current.firstName, lastName: current.lastName, phone: current.phone };
+      store.appointments.push(appointment); writeDemoStore(store);
+      return { appointment } as T;
+    }
+    if (path === "/api/messages") {
+      if (!current) throw new Error("Avval tizimga kiring.");
+      if (method === "POST") { const message: Message = { id: Date.now(), userId: current.id, sender: "user", body: body.body, createdAt: new Date().toISOString(), readAt: null, firstName: current.firstName, lastName: current.lastName, phone: current.phone }; store.messages.push(message); writeDemoStore(store); return { message } as T; }
+      return { messages: store.messages.filter((item: Message) => item.userId === current.id) } as T;
+    }
+    if (path.startsWith("/api/admin")) {
+      if (path === "/api/admin/login") { if (body.login !== "admin" || body.password !== "Mehr2026!") throw new Error("Login yoki parol noto‘g‘ri."); store.admin = true; writeDemoStore(store); return {} as T; }
+      if (!store.admin) throw new Error("Administrator sifatida kiring.");
+      if (path === "/api/admin/dashboard") return { counts: { totalUsers: store.users.length, newUsers: store.users.length, yesCount: store.users.filter((u: User) => u.consent === "yes").length, pendingCount: store.users.filter((u: User) => u.consent === "pending").length, confirmedCount: store.appointments.filter((a: Appointment) => a.status === "confirmed").length, todayCount: 0 }, daily: [], monthly: [], consent: [] } as T;
+      if (path === "/api/admin/users") return { users: store.users } as T;
+      if (path === "/api/admin/appointments") return { appointments: store.appointments } as T;
+      if (path === "/api/admin/settings") return { siteName: "NOIR", demoMode: true, meetingTypes: ["Fine Dining", "Kechki sayr", "Kofe uchrashuvi", "Kino kechasi"] } as T;
+      if (path === "/api/admin/messages") return { messages: store.messages } as T;
+      if (path === "/api/admin/me") return {} as T;
+    }
+    throw new Error("Statik demo rejimida bu amal mavjud emas.");
+  }
+
   const response = await fetch(url, { credentials: "include", ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "So‘rov bajarilmadi.");
@@ -56,7 +119,6 @@ function App() {
   const [theme, setTheme] = useState<"dark" | "light">(() => localStorage.getItem("elite-meeting-theme") === "light" ? "light" : "dark");
   const [language, setLanguage] = useState<"UZ" | "RU" | "EN">(() => (localStorage.getItem("elite-meeting-language") as "UZ" | "RU" | "EN") || "UZ");
   useEffect(() => { document.documentElement.lang = language.toLowerCase(); localStorage.setItem("elite-meeting-language", language); }, [language]);
-  const localizedWelcome = language === "RU" ? "Каждый момент заслуживает своей истории." : language === "EN" ? "Every moment deserves a story." : config.welcomeTitle;
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageDraft, setMessageDraft] = useState("");
   const [messageSearch, setMessageSearch] = useState("");
@@ -203,37 +265,48 @@ function App() {
       <main className="page-wrap">
         <div className="ambient ambient-one" /><div className="ambient ambient-two" />
         {stage === "welcome" && (
-          <section className="welcome-layout fade-in">
-            <div className="welcome-copy">
-              <span className="eyebrow"><Sparkles size={14} /> HAR BIR UCHRASHUV — YANGI HIKOYA</span>
-              <h1>{localizedWelcome} <span className="heart-inline">♥</span></h1>
-              <p className="lead">Maxsus uchrashuvga taklifni qabul qiling va o‘z vaqtingizni belgilang.</p>
-              <div className="welcome-note"><HeartHandshake size={20} /><span>Samimiy lahzalar, nafis muhit va esda qolarli xotiralar.</span></div>
-              <div className="trust-row"><span><Shield size={14} /> Ma’lumotlaringiz himoyalangan</span><i /><span>1 daqiqada ro‘yxatdan o‘ting</span></div>
-            </div>
-            <form className="form-card signup-card" onSubmit={startVerification}>
-              <div className="form-heading"><div><span className="card-kicker">{loginMode ? "XUSH KELIBSIZ" : "BOSHLAYMIZ"}</span><h2>{loginMode ? "Kabinetga kirish" : "O‘zingiz haqingizda"}</h2></div><div className="step-count">01 <span>/ 02</span></div></div>
-              {!loginMode ? <>
-                <div className="field-grid two">
-                  <Field label="Ismingiz" required><input autoComplete="given-name" placeholder="Masalan, Madina" value={profile.firstName} onChange={(e) => setField("firstName", e.target.value)} required /></Field>
-                  <Field label="Familiyangiz" required><input autoComplete="family-name" placeholder="Masalan, Karimova" value={profile.lastName} onChange={(e) => setField("lastName", e.target.value)} required /></Field>
-                </div>
-                <Field label="Telefon raqamingiz" required><PhoneInput value={profile.phone} onChange={(value) => setField("phone", value)} /></Field>
-                <div className="field-grid two">
-                  <Field label="Tug‘ilgan sana" hint="Ixtiyoriy"><input type="date" value={profile.birthDate} onChange={(e) => setField("birthDate", e.target.value)} /></Field>
-                  <Field label="Shahar" required><input placeholder="Toshkent" value={profile.city} onChange={(e) => setField("city", e.target.value)} required /></Field>
-                </div>
-                <div className="field-grid two">
-                  <Field label="Telegram" hint="Ixtiyoriy"><input placeholder="@username" value={profile.telegram} onChange={(e) => setField("telegram", e.target.value)} /></Field>
-                  <Field label="O‘zingiz haqingizda" hint="Ixtiyoriy"><input placeholder="Qisqacha..." value={profile.about} onChange={(e) => setField("about", e.target.value)} /></Field>
-                </div>
-              </> : <><p className="form-description">Kabinetga kirish uchun profilingizga bog‘langan telefon raqamini kiriting.</p><Field label="Telefon raqamingiz" required><PhoneInput value={profile.phone} onChange={(value) => setField("phone", value)} /></Field></>}
-              <ErrorText>{error}</ErrorText>
-              <button className="btn btn-primary btn-wide" type="submit">{loginMode ? "Platformaga kirish" : "Taklifnomani ko‘rish"} <ArrowRight size={17} /></button>
-              <button type="button" className="text-button centered" onClick={() => { setLoginMode(!loginMode); setError(""); }}> {loginMode ? "Yangi taklifnoma olish" : "Avval ro‘yxatdan o‘tganmisiz? Kabinetga kiring"} </button>
-              <p className="privacy-note"><Shield size={13} /> Telefoningiz faqat tasdiqlash va taklifnoma uchun ishlatiladi.</p>
-            </form>
-          </section>
+          <>
+            <section className="noir-hero fade-in">
+              <div className="noir-hero-image"><img src="assets/hero.jpg" alt="Noir intimate evening" /></div>
+              <div className="noir-hero-shade" />
+              <div className="noir-hero-copy">
+                <span className="noir-edition">PRIVATE INVITATION / EDITION 01</span>
+                <h1>HAR BIR LAHZA<br /><em>ODDIY EMAS.</em></h1>
+                <p>Maxsus bir uchrashuv, siz uchun alohida yozilgan hikoya.</p>
+                <button className="noir-cta" onClick={() => document.querySelector(".noir-registration")?.scrollIntoView({ behavior: "smooth" })}>Taklifni ochish <ArrowDownRight size={18} /></button>
+              </div>
+              <div className="noir-meta"><span>41°18′N</span><span>21:30 / TOSHKENT</span><span>SCROLL — 01</span></div>
+              <div className="noir-floating-frame"><img src="assets/portrait.jpg" alt="Taklifnoma kechasi" /><span>NOIR / 2026</span></div>
+            </section>
+
+            <section className="noir-registration noir-registration-section">
+              <div className="noir-reg-copy">
+                <span className="noir-label">01 — SHAXSIY TAKLIF</span>
+                <h2>Siz uchun<br /><em>alohida makon.</em></h2>
+                <p>Bir necha daqiqada ro‘yxatdan o‘ting. Taklifnoma, uchrashuv va sizning shaxsiy xotirangiz bir joyda.</p>
+                <div className="noir-trust"><Shield size={16} /><span>Ma’lumotlar demo bazada xavfsiz saqlanadi</span></div>
+              </div>
+              <form className="noir-form" onSubmit={startVerification}>
+                <div className="noir-form-head"><div><span>{loginMode ? "KABINET" : "RO‘YXAT"}</span><h3>{loginMode ? "Qayta xush kelibsiz" : "O‘zingiz haqingizda"}</h3></div><b>01 <i>/ 02</i></b></div>
+                {!loginMode ? <>
+                  <div className="noir-field-grid"><Field label="Ismingiz" required><input autoComplete="given-name" placeholder="Madina" value={profile.firstName} onChange={(e) => setField("firstName", e.target.value)} required /></Field><Field label="Familiyangiz" required><input autoComplete="family-name" placeholder="Karimova" value={profile.lastName} onChange={(e) => setField("lastName", e.target.value)} required /></Field></div>
+                  <Field label="Telefon raqamingiz" required><PhoneInput value={profile.phone} onChange={(value) => setField("phone", value)} /></Field>
+                  <div className="noir-field-grid"><Field label="Tug‘ilgan sana" hint="Ixtiyoriy"><input type="date" value={profile.birthDate} onChange={(e) => setField("birthDate", e.target.value)} /></Field><Field label="Shahar" required><input placeholder="Toshkent" value={profile.city} onChange={(e) => setField("city", e.target.value)} required /></Field></div>
+                  <div className="noir-field-grid"><Field label="Telegram" hint="Ixtiyoriy"><input placeholder="@username" value={profile.telegram} onChange={(e) => setField("telegram", e.target.value)} /></Field><Field label="Xohishingiz" hint="Ixtiyoriy"><input placeholder="Qisqacha izoh" value={profile.about} onChange={(e) => setField("about", e.target.value)} /></Field></div>
+                </> : <><p className="form-description">Profilingizga bog‘langan raqamni kiriting.</p><Field label="Telefon raqamingiz" required><PhoneInput value={profile.phone} onChange={(value) => setField("phone", value)} /></Field></>}
+                <ErrorText>{error}</ErrorText><button className="noir-submit" type="submit">{loginMode ? "Kabinetga kirish" : "Taklifnomani ko‘rish"} <ArrowRight size={18} /></button>
+                <button type="button" className="noir-switch" onClick={() => { setLoginMode(!loginMode); setError(""); }}>{loginMode ? "Yangi taklifnoma yaratish" : "Allaqachon ro‘yxatdan o‘tganmisiz?"}</button>
+              </form>
+            </section>
+
+            <section className="noir-manifesto"><span>THE ART OF</span><h2>Bir kishi uchun<br /><em>mo‘ljallangan lahza.</em></h2><p>Biz uchrashuvni rejalashtirmaymiz — sizning hikoyangiz uchun uning ritmini yaratamiz.</p></section>
+
+            <section className="noir-gallery"><header><span>02 — EXPERIENCE EDIT</span><h2>Tanlang.<br /><em>To‘liq his eting.</em></h2></header><div className="noir-gallery-grid">
+              {[ ["Fine Dining","assets/dining.jpg","Nafis restoranlar va alohida menyular"], ["Kechki sayr","assets/walk.jpg","Shaharni jim kechada kashf qilish"], ["Kofe uchrashuvi","assets/coffee.jpg","Samimiy suhbat va yangi lahzalar"] ].map(([title,image,copy],index)=><article className={`noir-gallery-item item-${index}`} key={title}><img src={image} alt={title} /><div><span>0{index+1}</span><h3>{title}</h3><p>{copy}</p><button onClick={()=>document.querySelector(".noir-registration")?.scrollIntoView({behavior:"smooth"})}>Batafsil <ArrowUpRight size={15}/></button></div></article>) }
+            </div></section>
+
+            <section className="noir-invitation"><img src="assets/cinema.jpg" alt="Kino kechasi" /><div><span>03 — MAXSUS TAKLIF</span><h2>SIZ UCHUN<br /><em>ALOHIDA BIR TAKLIFIM BOR.</em></h2><p>Men bilan unutilmas uchrashuvga borishga rozimisiz?</p><button className="noir-submit" onClick={()=>document.querySelector(".noir-registration")?.scrollIntoView({behavior:"smooth"})}>Taklifni boshlash <ArrowRight size={18}/></button></div></section>
+          </>
         )}
 
         {stage === "verify" && (
