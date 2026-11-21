@@ -123,7 +123,8 @@ function App() {
   const [messageDraft, setMessageDraft] = useState("");
   const [messageSearch, setMessageSearch] = useState("");
   const [appointmentForm, setAppointmentForm] = useState({ date: "", startTime: "", endTime: "", type: "Kafe", venue: "", address: "", duration: "2 soat", note: "", wish: "" });
-  const isAdminPath = window.location.pathname.replace(/\/+$/, "") === "/admin";
+  const redirectPath = window.location.search.startsWith("?/") ? decodeURIComponent(window.location.search.slice(2)) : "";
+  const isAdminPath = window.location.pathname.replace(/\/+$/, "") === "/admin" || window.location.pathname.replace(/\/+$/, "") === "/taklifnoma/admin" || redirectPath === "admin";
   const toggleTheme = () => setTheme((current) => {
     const next = current === "dark" ? "light" : "dark";
     localStorage.setItem("elite-meeting-theme", next);

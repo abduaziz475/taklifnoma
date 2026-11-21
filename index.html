@@ -11,6 +11,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <script>
+      (function () {
+        if (window.location.search.startsWith("?/")) {
+          var path = decodeURIComponent(window.location.search.slice(2));
+          var cleanBase = window.location.pathname.replace(/\/+$/, "");
+          var adminPath = cleanBase + "/" + path;
+          window.history.replaceState(null, "", adminPath);
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
